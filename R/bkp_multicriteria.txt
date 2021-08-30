@@ -6,24 +6,35 @@
 #' @param vprec data frame column or vector containing daily precipitation
 #' @param vet0 data frame column or vector containing daily ET0 (potential
 #' evapotranspiration). It can be obtained with the function \code(penman_day)
+#' @param veta data frame column or vector containing daily ETa (actual
+#' evapotranspiration). It can be obtained with the function \code(actual_evap_day)
 #' @param score a number ranging from 0 to 100. The percentile above which
 #' events will be considered flash droughts.
 #' @param thresholds a vector with multiple threshold values. View details for
 #'  more information. We advise not to change from the default values.
 #'
 #' @details
-#' The \code{thresholds} vector contains 6 elements respectively:
+#' The \code{thresholds} vector contains 8 elements respectively:
 #'
-#' * 1) General threshold for anomalies. Indicates the number of standard deviations
+#' * 1) The threshold used for cleaning data in Christian et al. method
+#' (\code{Christian_clean_data_week}). It indicates the maximum value accepted
+#' for the ration ETa/ET0. The default is 1.1, allowing ETa marginally higher than
+#' ET0. This reduces significatly the number o missing data.
+#' * 2) General threshold for anomalies. Indicates the number of standard deviations
 #' to the average for the anomalies. The default value is 1.
-#' * 2) SPEI threshold. The value to be considered under drought conditions. The
+#' * 3) SPEI threshold. The value to be considered under drought conditions. The
 #' default value is the same froim Noguera et al. (2020), i.e., -1.28
-#' * 3) General threshold for accumulated anomalies. Indicated the sum of weekly
+#' * 4) General threshold for accumulated anomalies. Indicated the sum of weekly
 #' anomalies accumulated over a period of 4 weeks. The default value is 3.
-#' * 4) SPEI intensification. The accumulated difference over 4 weeks. The default value is -2.
-#' * 5 and 6) EDDI intensification and recuperation. The values are the same from
+#' * 5) SESR and SPEI intensifications. The accumulated difference over 4 weeks.
+#' The default value is -2.
+#' * 6 and 7) EDDI intensification and recuperation. The values are the same from
 #' \code{Pendergrass2020}. Default: 50 and 10 respectively
+#' * 8) Delta_SESR percentile. Indicates the percentile of the difference over 4
+#' weeks. We used the same threshold from Christian et al. 2020 for default (30th percentile.)
 #' @md
+#'
+#'
 #'
 #'
 #' @return
@@ -35,14 +46,15 @@
 #' ET0 <- penman_day(vtime = de_tha_d$time, vwind = de_tha_d$wind_speed, vtemp = de_tha_d$temperature,
 #'                   vvpd = de_tha_d$vapor_p_def, vheatflux = (de_tha_d$sensible_heat + de_tha_d$latent_heat))[,2]
 #'
+#' ETa <- actual_evap_day(vtime = de_tha_d$time,vlatent_heat =de_tha_d$latent_heat, vtemperature = de_tha_d$temperature)[,2]
+#'
 #' multi_criteria_fd <- multicriteria_fd(vtime = de_tha_d$time, vtemp = de_tha_d$temperature,
-#'                                       vprec = de_tha_d$precipitation, vet0 = ET0)
+#'                                       vprec = de_tha_d$precipitation, vet0 = ET0, veta = ETa)
 #'
 #'
 
+multicriteria_fd <- function(vtime, vtemp, vprec, vet0, veta, score = 0.6, d_score = 0.2,thresholds = c(1, 0, 0, 0, -2, 50, 10, 30)){
 
-
-multicriteria_fd <- function(vtime, vtemp, vprec, vet0, score = 0.7, d_score = 0.2,thresholds = c(1, 0, 0, 0, -2, 50, 10, 30)){
 
   ##### test data
 
@@ -63,7 +75,7 @@ multicriteria_fd <- function(vtime, vtemp, vprec, vet0, score = 0.7, d_score = 0
 
   #build basic data frame
   df_day <- data.frame(time = vtime, temperature = vtemp, precipitation = vprec,
-                       et0 = vet0)
+                       et0 = vet0, eta = veta)
 
   #accumulate data into weeks
   list_week_matrix <- list(NA) #list of matrixes for each variable
@@ -72,9 +84,9 @@ multicriteria_fd <- function(vtime, vtemp, vprec, vet0, score = 0.7, d_score = 0
     list_week_matrix[[i-1]] <- f.week(df_day[,c(1,i)],na_rm = F, f = mean, kind = 'standard')[[2]]
     df_week[,i] <- f.week(df_day[,c(1,i)],na_rm = F, f = mean, kind = 'standard')[[1]][,2]
   }
-  df_week[,3:4] <- df_week[,3:4] * 7 #adjust to display sum instead of mean
+  df_week[,3:5] <- df_week[,3:5] * 7 #adjust to display sum instead of mean
   colnames(df_week) <- colnames(df_day) # rename columns
-  names(list_week_matrix) <- colnames(df_day[,2:4])
+  names(list_week_matrix) <- colnames(df_day[,2:5])
 
   #anomaly of weekly accumulation
   df_week_anomalies <- df_week
@@ -88,7 +100,7 @@ multicriteria_fd <- function(vtime, vtemp, vprec, vet0, score = 0.7, d_score = 0
   df_week$temp_anomaly <- df_week_anomalies$temperature
   df_week$prec_anomaly <- df_week_anomalies$precipitation
   df_week$et0_anomaly <- df_week_anomalies$et0
-  # df_week$eta_anomaly <- df_week_anomalies$eta
+  df_week$eta_anomaly <- df_week_anomalies$eta
 
   df_week$time <- as.Date(df_week$time) #cast times from dttm to Date
 
@@ -111,13 +123,13 @@ multicriteria_fd <- function(vtime, vtemp, vprec, vet0, score = 0.7, d_score = 0
   )
 
 
-  # #SESR
-  # sesr_input_clean <- Christian_clean_data_week(vtime = df_day$time,
-  #                                               vET0 = df_day$et0,
-  #                                               vETa = df_day$eta,
-  #                                               threshold = thresholds[1])
-  #
-  # df_week$sesr <- sesr_input_clean[[1]]$var
+  #SESR
+  sesr_input_clean <- Christian_clean_data_week(vtime = df_day$time,
+                                                vET0 = df_day$et0,
+                                                vETa = df_day$eta,
+                                                threshold = thresholds[1])
+
+  df_week$sesr <- sesr_input_clean[[1]]$var
 
   n_weeks <- 4
 
@@ -125,31 +137,31 @@ multicriteria_fd <- function(vtime, vtemp, vprec, vet0, score = 0.7, d_score = 0
   df_week$temp_anomaly_ac <- runner::runner(df_week$temp_anomaly, k = 4, f = sum)
   df_week$prec_anomaly_ac <- runner::runner(df_week$prec_anomaly, k = 4, f = sum)
   df_week$et0_anomaly_ac <- runner::runner(df_week$et0_anomaly, k = 4, f = sum)
-  # df_week$eta_anomaly_ac <- runner::runner(df_week$eta_anomaly, k = 4, f = sum)
+  df_week$eta_anomaly_ac <- runner::runner(df_week$eta_anomaly, k = 4, f = sum)
   df_week$spei_dif <- c(rep(NA, n_weeks),diff(df_week$spei, lag = n_weeks))
   df_week$eddi_dif1 <- c(rep(NA, n_weeks-2),diff(df_week$eddi, lag = n_weeks-2))
-  # df_week$sesr_dif <- c(rep(NA, n_weeks),diff(df_week$sesr, lag = n_weeks))
+  df_week$sesr_dif <- c(rep(NA, n_weeks),diff(df_week$sesr, lag = n_weeks))
 
   #delta.SESR percentiles
-  # df_week$sesr_dif_perc <- c(t(apply(matrix(df_week$sesr_dif, nrow = 52, byrow = F),1, f.percentile)))
+  df_week$sesr_dif_perc <- c(t(apply(matrix(df_week$sesr_dif, nrow = 52, byrow = F),1, f.percentile)))
 
   #criteria
 
-  # criteria_names <- c('time', 'temp_anomaly', 'prec_anomaly', 'et0_anomaly',
-  #                     'spei', 'eddi',
-  #                     'prec_anomaly_ac','et0_anomaly_ac','temp_anomaly_ac',
-  #                     'spei_dif', 'eddi_dif1', )
+  criteria_names <- c('time', 'temp_anomaly', 'prec_anomaly', 'et0_anomaly', 'eta_anomaly',
+                      'spei', 'sesr', 'eddi',
+                      'prec_anomaly_ac','et0_anomaly_ac','temp_anomaly_ac',
+                      'spei_dif', 'eddi_dif1', 'sesr', 'sesr_dif_perc', 'sesr_dif')
 
 
-  df_criteria <- df_week[,c(1,5:14)]
+  df_criteria <- df_week[colnames(df_week) %in% criteria_names]
 
   df_criteria$temp_anomaly <- (df_criteria$temp_anomaly > thresholds[2])*1
   df_criteria$prec_anomaly <- (df_criteria$prec_anomaly < -thresholds[2])*1
   df_criteria$et0_anomaly <- (df_criteria$et0_anomaly > thresholds[2])*1
-  # df_criteria$eta_anomaly <- (df_criteria$eta_anomaly > thresholds[2])*1
+  df_criteria$eta_anomaly <- (df_criteria$eta_anomaly > thresholds[2])*1
   df_criteria$spei <- (df_criteria$spei < thresholds[3])*1
   df_criteria$eddi <- (df_criteria$eddi > 100*pnorm(thresholds[2],0,1))*1 #
-  # df_criteria$sesr <- (df_criteria$sesr < thresholds[2])*1 #
+  df_criteria$sesr <- (df_criteria$sesr < thresholds[2])*1 #
 
   df_criteria$temp_anomaly_ac <- (df_criteria$temp_anomaly_ac > thresholds[4])*1
   df_criteria$prec_anomaly_ac <- (df_criteria$prec_anomaly_ac < thresholds[4])*1
@@ -157,9 +169,9 @@ multicriteria_fd <- function(vtime, vtemp, vprec, vet0, score = 0.7, d_score = 0
   # df_criteria$eta_anomaly_ac <- (df_criteria$eta_anomaly_ac > thresholds[4])*1
 
   df_criteria$spei_dif <- (df_criteria$spei_dif < thresholds[5])*1
-  # df_criteria$sesr_dif <- (df_criteria$sesr_dif < thresholds[5])*1 #
+  df_criteria$sesr_dif <- (df_criteria$sesr_dif < thresholds[5])*1 #
   df_criteria$eddi_dif1 <- (df_criteria$eddi_dif1 < thresholds[6])*1
-  # df_criteria$sesr_dif_perc <- (df_criteria$sesr_dif_perc < thresholds[8])*1 #
+  df_criteria$sesr_dif_perc <- (df_criteria$sesr_dif_perc < thresholds[8])*1 #
   n_criteria <- ncol(df_criteria)-1
 
   # hist(df_criteria$score)
@@ -173,7 +185,7 @@ multicriteria_fd <- function(vtime, vtemp, vprec, vet0, score = 0.7, d_score = 0
   # View(df_criteria)
 
   # classify as event
-  df_events <- df_criteria[,c(1,12,13,14)]
+  df_events <- df_criteria[,c(1,16,17,18)]
 
   # df_events$is.fd <- (df_events$score_percentile_global > score)*1
   diffs <- data.frame(time = df_events$time)
@@ -257,3 +269,19 @@ multicriteria_fd <- function(vtime, vtemp, vprec, vet0, score = 0.7, d_score = 0
   return(output)
 
 }
+
+
+#
+# ggplot(df_criteria, aes(x = 1,y = score))+
+#   geom_violin()+
+#   geom_jitter(shape=16, position=position_jitter(0.15))
+#
+# ggplot(df_criteria, aes(x = time,y = score))+
+#   geom_point()
+#
+# ggplot(df_events, aes(x = time))+
+#   geom_point(aes(y= score))+
+#   geom_bar(aes(weight = is.fd))
+#
+#
+#

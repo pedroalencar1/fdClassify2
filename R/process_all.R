@@ -94,9 +94,10 @@ process_all <- function(df_d,include_variables = T, data = 'station'){
                                       vtemp = df_d$temperature,
                                       vprec = df_d$precipitation,
                                       vet0 = ET0$et0,
-                                      veta = ETa$eta,
-                                      score = 0.6,
-                                      d_score = 0.2)
+                                      # veta = ETa$eta,
+                                      # score = 0.7,
+                                      # d_score = 0.2
+                                      )
 
     print('Multi-criteria: Done')
 
